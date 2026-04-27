@@ -62,7 +62,6 @@ v_rel_e00 = vrel_e00_data[:, 1]
 vrel_x_e00 = vrel_e00_data[:, 2] if vrel_e00_data.shape[1] > 2 else None
 vrel_y_e00 = vrel_e00_data[:, 3] if vrel_e00_data.shape[1] > 3 else None
 
-# 讀取 orbit 資料
 pos = np.loadtxt("orbit.dat")
 pos_e00 = np.loadtxt("orbit_e00.dat")
 x_a = pos[:, 1]
@@ -82,12 +81,7 @@ for rho_file in rho_files:
     rd = np.loadtxt(rho_file)
     rho_data_list.append(interp1d(rd[:, 0], 10**rd[:, 1], kind='linear', fill_value="extrapolate"))
 
-
-# ============================================================
-# Helper Functions
-# ============================================================
 def save_costheta_all_models():
-    """計算並儲存各 model 的 costheta 值 (t, costheta) 到檔案。"""
     for idx, model in enumerate(models):
         if model == "M0":
             t_arr = t_vrel_e00
@@ -104,10 +98,9 @@ def save_costheta_all_models():
             y_arr = y_a
             r_arr = r_a
 
-        vw_arr = np.full_like(t_arr, vw_fixed_values[idx])  # 用固定 vw
+        vw_arr = np.full_like(t_arr, vw_fixed_values[idx]) 
         vwx = vw_arr * x_arr / r_arr
         vwy = vw_arr * y_arr / r_arr
-        # vax, vay 直接從 vrel 檔案讀取
         if model == "M0":
             va = np.loadtxt("vrel_e00.dat")
         else:
@@ -133,29 +126,30 @@ def calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t, rho_ratio):
         var = ecc * np.sqrt(Grav_eff * (M_G + M_WD) / (a_semi * AU_CM)) * np.sqrt(1.0 - ((a_semi * AU_CM * (1.0 - ecc**2.0) / d_cm - 1.0) / ecc)**2.0) / np.sqrt(1.0-ecc**2.0)
 
     var = np.where(np.asarray(t) < 7.5 * period, -var, var)
+    
     ## Eq. 12 with cosine theta
     # return 100.0 * 0.25 * (1.0 - var/vw_cms) * ((2.0 * Grav_eff * M_WD / (vw_cms**2.0 + vrel_cms**2.0 - 2.0 * vw_cms * var)) / d_cm)**2.0
     return rho_ratio * 100.0 * 0.25 * (1.0 - var/vw_cms) * ((2.0 * Grav_eff * M_WD / (vw_cms**2.0 + vrel_cms**2.0 - 2.0 * vw_cms * var)) / d_cm)**2.0
+    
     ## Eq. 13 without cosine theta
     # return 100.0 * 0.25 * (np.sqrt(vw_cms**2 + vrel_cms**2 - 2.0 * vw_cms * var) / vw_cms)  * ((2.0 * Grav_eff * M_WD / (vw_cms**2.0 + vrel_cms**2.0 - 2.0 * vw_cms * var)) / d_cm)**2.0
     # return rho_ratio * 100.0 * 0.25 * (np.sqrt(vw_cms**2 + vrel_cms**2 - 2.0 * vw_cms * var) / vw_cms)  * ((2.0 * Grav_eff * M_WD / (vw_cms**2.0 + vrel_cms**2.0 - 2.0 * vw_cms * var)) / d_cm)**2.0
+
     ## wind density 
     # return np.log10(1e-7*1.989e33/3.156e7 / (4.0 * np.pi * d_cm**2.0 * vw_cms))
 
 def compute_vrel_cms(d_cm):
-    """Relative velocity from vis-viva equation [cm/s]."""
     return np.sqrt(Grav_eff * (M_G + M_WD) * (2.0 / d_cm - 1.0 / (a_semi * AU_CM)))
 
 
 def beta_func_rho(alpha_val, vrel, d, vw, t, idx):
-    """Beta with density ratio correction (rho_sim / rho_w)."""
     d_cm = d * AU_CM
     vw_cms = vw * 1e5
     vrel_cms = compute_vrel_cms(d_cm)
     rho_sim_t = rho_data_list[idx](t)
     rho_w = Mdot_G[idx] / (4.0 * np.pi * d_cm**2 * vw_cms)
 
-    # 計算 costheta
+    # costheta
     from scipy.interpolate import interp1d
     if idx == 0:
         # e=0
@@ -187,11 +181,12 @@ def beta_func_rho(alpha_val, vrel, d, vw, t, idx):
     vay = vrel_y_val + vwy
     num = (vwx - vax) * vwx + (vwy - vay) * vwy
     denom = np.sqrt((vwx - vax) ** 2 + (vwy - vay) ** 2) * vw
-    # 防止除以0
+
     costheta = np.where(denom != 0, num / denom, 1.0)
 
     rho_ratio = rho_sim_t / rho_w
-    #return calc_beta(alpha_val, d_cm, vw_cms, vrel_cms, rho_ratio=rho_ratio) * costheta
+    # return calc_beta(alpha_val, d_cm, vw_cms, vrel_cms, rho_ratio=rho_ratio) * costheta
+    
     ecc = 0.0 if models[idx] == "M0" else 0.5
     return calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t, rho_ratio)
 
