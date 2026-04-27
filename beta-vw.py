@@ -122,22 +122,25 @@ def save_costheta_all_models():
         header = "t costheta vwx vwy vax vay"
         np.savetxt(f"costheta_{model}.dat", out, fmt="%.8f", header=header)
 
-def calc_beta(alpha, d_cm, vw_cms, vrel_cms, rho_ratio=1.0):
+def calc_beta(alpha, d_cm, vw_cms, vrel_cms, rho_ratio):
     return rho_ratio * 100.0 * alpha * (Grav_eff * M_WD / (d_cm * vw_cms * vw_cms))**2.0 / (1.0 + (vrel_cms / vw_cms)**2.0)**1.5
 
 # Tejeda et al. 2025, Eq. 12
-def calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t):
+def calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t, rho_ratio):
     if ecc == 0.0:
         var = 0.0
     else:
         var = ecc * np.sqrt(Grav_eff * (M_G + M_WD) / (a_semi * AU_CM)) * np.sqrt(1.0 - ((a_semi * AU_CM * (1.0 - ecc**2.0) / d_cm - 1.0) / ecc)**2.0) / np.sqrt(1.0-ecc**2.0)
 
-    if t < 7.5 * period:
-        var = -var
-    # Eq. 12 with cosine theta
-    return 100.0 * 0.25 * (1.0 - var/vw_cms) * ((2.0 * Grav_eff * M_WD / (vw_cms**2.0 + vrel_cms**2.0 - 2.0 * vw_cms * var)) / d_cm)**2.0
-    # Eq. 13 without cosine theta
+    var = np.where(np.asarray(t) < 7.5 * period, -var, var)
+    ## Eq. 12 with cosine theta
+    # return 100.0 * 0.25 * (1.0 - var/vw_cms) * ((2.0 * Grav_eff * M_WD / (vw_cms**2.0 + vrel_cms**2.0 - 2.0 * vw_cms * var)) / d_cm)**2.0
+    return rho_ratio * 100.0 * 0.25 * (1.0 - var/vw_cms) * ((2.0 * Grav_eff * M_WD / (vw_cms**2.0 + vrel_cms**2.0 - 2.0 * vw_cms * var)) / d_cm)**2.0
+    ## Eq. 13 without cosine theta
     # return 100.0 * 0.25 * (np.sqrt(vw_cms**2 + vrel_cms**2 - 2.0 * vw_cms * var) / vw_cms)  * ((2.0 * Grav_eff * M_WD / (vw_cms**2.0 + vrel_cms**2.0 - 2.0 * vw_cms * var)) / d_cm)**2.0
+    # return rho_ratio * 100.0 * 0.25 * (np.sqrt(vw_cms**2 + vrel_cms**2 - 2.0 * vw_cms * var) / vw_cms)  * ((2.0 * Grav_eff * M_WD / (vw_cms**2.0 + vrel_cms**2.0 - 2.0 * vw_cms * var)) / d_cm)**2.0
+    ## wind density 
+    # return np.log10(1e-7*1.989e33/3.156e7 / (4.0 * np.pi * d_cm**2.0 * vw_cms))
 
 def compute_vrel_cms(d_cm):
     """Relative velocity from vis-viva equation [cm/s]."""
@@ -190,7 +193,7 @@ def beta_func_rho(alpha_val, vrel, d, vw, t, idx):
     rho_ratio = rho_sim_t / rho_w
     #return calc_beta(alpha_val, d_cm, vw_cms, vrel_cms, rho_ratio=rho_ratio) * costheta
     ecc = 0.0 if models[idx] == "M0" else 0.5
-    return calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t)
+    return calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t, rho_ratio)
 
 
 def load_vw_interp(idx):
@@ -318,7 +321,10 @@ def plot_beta_t():
             vrel_cms = compute_vrel_cms(d_cm)
             # beta_list.append(calc_beta(alpha, d_cm, vw_cms, vrel_cms))
             ecc = 0.0 if models[idx] == "M0" else 0.5
-            beta_list.append(calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t))
+            rho_sim_t = rho_data_list[idx](t)
+            rho_w = Mdot_G[idx] / (4.0 * np.pi * d_cm**2 * vw_cms)
+            rho_ratio = rho_sim_t / rho_w
+            beta_list.append(calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t, rho_ratio))
         p_arr = t_arr / period
         ax.plot(p_arr, beta_list, color=color, linewidth=4)
 
@@ -331,7 +337,8 @@ def plot_beta_t():
             vrel_cms = compute_vrel_cms(d_cm)
             # beta_fixed.append(calc_beta(alpha, d_cm, vw_fixed * 1e5, vrel_cms))
             ecc = 0.0 if models[idx] == "M0" else 0.5
-            beta_fixed.append(calc_beta_var(d_cm, vw_fixed * 1e5, vrel_cms, ecc, t))
+            rho_ratio = rho_sim_t / rho_w
+            beta_fixed.append(calc_beta_var(d_cm, vw_fixed * 1e5, vrel_cms, ecc, t, rho_ratio))
         ax.plot(p_arr, beta_fixed, color=color, linestyle=':', linewidth=2)
 
         # Accretion efficiency from simulation
@@ -362,10 +369,12 @@ def plot_beta_t():
         ax.set_title(label)
         ax.set_xlim(7.01, 8.0)
         ax.set_ylim(0, ylimit_acc)
+        # ax.set_ylim(-17, -14.0)
         ax.xaxis.set_major_locator(MultipleLocator(0.2))
-        ax.xaxis.set_minor_locator(AutoMinorLocator())
+        ax.xaxis.set_minor_locator(AutoMinorLocator(5))
         ax.yaxis.set_major_locator(MultipleLocator(5))
-        ax.yaxis.set_minor_locator(AutoMinorLocator(1))
+        # ax.yaxis.set_major_locator(MultipleLocator(1))
+        ax.yaxis.set_minor_locator(AutoMinorLocator(5))
 
     plt.savefig("beta-t.pdf", dpi=300)
     plt.show()
@@ -412,7 +421,10 @@ def plot_beta_vw():
             vrel_cms = compute_vrel_cms(d_cm)
             # beta_list.append(calc_beta(alpha, d_cm, vw_kms * 1e5, vrel_cms))
             ecc = 0.0 if models[idx] == "M0" else 0.5
-            beta_list.append(calc_beta_var(d_cm, vw_kms * 1e5, vrel_cms, ecc, t))
+            rho_sim_t = rho_data_list[idx](t)
+            rho_w = Mdot_G[idx] / (4.0 * np.pi * d_cm**2 * vw_kms * 1e5)
+            rho_ratio = rho_sim_t / rho_w
+            beta_list.append(calc_beta_var(d_cm, vw_kms * 1e5, vrel_cms, ecc, t, rho_ratio))
 
             vw_list.append(vw_kms)
             vrel_list.append(vrel_kms)
@@ -518,7 +530,10 @@ def plot_beta_vrel():
             vrel_cms = compute_vrel_cms(d_cm)
             # beta_list.append(calc_beta(alpha, d_cm, vw_cms, vrel_cms))
             ecc = 0.0 if models[idx] == "M0" else 0.5
-            beta_list.append(calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t))
+            rho_sim_t = rho_data_list[idx](t)
+            rho_w = Mdot_G[idx] / (4.0 * np.pi * d_cm**2 * vw_cms)
+            rho_ratio = rho_sim_t / rho_w
+            beta_list.append(calc_beta_var(d_cm, vw_cms, vrel_cms, ecc, t, rho_ratio))
 
             vrel_list.append(vrel_func(t))
 
